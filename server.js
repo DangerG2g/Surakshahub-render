@@ -12,7 +12,11 @@ const port = Number(process.env.PORT || 3001);
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'SurakshaHub API' }));
-app.use('/api', apiHandler);
+app.use('/api', (req, res, next) => {
+  // Express strips the mount path from req.url; restore it for the shared API handler.
+  req.url = `/api${req.url.startsWith('/') ? '' : '/'}${req.url}`;
+  return apiHandler(req, res, next);
+});
 app.use(express.static(distDir, { index: false, maxAge: '1h' }));
 app.use((req, res) => {
   if (req.method === 'GET' && !req.path.startsWith('/api/')) {
