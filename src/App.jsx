@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from './apiClient.js';
 import { QRCodeSVG } from 'qrcode.react';
 import { Activity, AlertTriangle, Bell, Building2, CheckCircle2, ChevronRight, ClipboardList, Gauge, GraduationCap, HardHat, LayoutDashboard, LogOut, MapPinned, Menu, Plus, QrCode, RadioTower, Shield, ShieldAlert, ShieldCheck, Users, Wrench, X, RefreshCw, Search, Clock3, CircleHelp, Settings, Send, Check, ExternalLink } from 'lucide-react';
@@ -178,7 +178,7 @@ export default function App() {
     return Math.max(28, Math.min(100, 100 - open*13 - critical*22));
   };
   const filteredRequests = myRequests.filter(r => `${r.title} ${r.area} ${bName(r.building_id)} ${r.status} ${r.category}`.toLowerCase().includes(search.toLowerCase()));
-  const navItems = role==='student' ? ['Overview','My requests','Alerts','Building Pulse','Assets & QR'] : role==='maintenance' ? ['Overview','Work orders','Alerts','Building Pulse','Assets & QR'] : role==='security' ? ['Overview','Alerts & incidents','Visitors','Building Pulse'] : ['Overview','Work orders','People & roles','Alerts & incidents','Visitors','Building Pulse','Assets & QR','Insights'];
+  const navItems = role==='student' ? ['Overview','Campus Map','My requests','Alerts','Building Pulse','Assets & QR'] : role==='maintenance' ? ['Overview','Campus Map','Work orders','Alerts','Building Pulse','Assets & QR'] : role==='security' ? ['Overview','Campus Map','Alerts & incidents','Visitors','Building Pulse'] : ['Overview','Campus Map','Work orders','People & roles','Alerts & incidents','Visitors','Building Pulse','Assets & QR','Insights'];
 
   if (loading) return <div className="loading-screen"><div className="brand-mark"><ShieldCheck/></div><h2>SurakshaHub</h2><p>Connecting securely…</p></div>;
   if (!user) return <AuthScreen onSignIn={signIn} onSignUp={signUp} error={error} setError={setError} configured={Boolean(supabase)} loading={loading} />;
@@ -197,6 +197,7 @@ export default function App() {
         {isDemo&&<div className="demo-banner"><CircleHelp size={17}/><span><b>Demo preview:</b> changes stay in this browser session. Set up Supabase for real accounts and shared data.</span><button onClick={()=>setDemoUser(null)}>Exit demo</button></div>}
         {page==='People & roles'&&role==='admin'&&<PeopleRolesPage people={people} requests={requests} onRoleChange={changeRole} onUpdateRequest={updateRequest} />}
         {page==='Overview'&&<Overview role={role} user={user} requests={myRequests} alerts={alerts} buildings={BUILDINGS} buildingHealth={buildingHealth} onNavigate={setPage} onNew={()=>setShowRequest(true)} />}
+        {page==='Campus Map'&&<CampusMapPage buildings={BUILDINGS} health={buildingHealth} requests={requests} alerts={alerts} />}
         {(page==='My requests'||page==='Work orders')&&<WorkOrders role={role} requests={filteredRequests} search={search} setSearch={setSearch} onNew={()=>setShowRequest(true)} onUpdate={updateRequest} user={user} people={people} />}
         {page==='Building Pulse'&&<CampusPulse buildings={BUILDINGS} health={buildingHealth} requests={requests} alerts={alerts} onAlert={createAlert} role={role} />}
         {page==='Alerts & incidents'&&<AlertsPage alerts={alerts} role={role} onUpdate={updateAlert} onAlert={createAlert} />}
@@ -211,7 +212,63 @@ export default function App() {
   </div>;
 }
 
-function navIcon(n){return ({Overview:LayoutDashboard,'My requests':ClipboardList,Alerts:Bell,'Work orders':Wrench,'People & roles':Users,'Building Pulse':MapPinned,'Alerts & incidents':ShieldAlert,Visitors:Users,'Assets & QR':QrCode,Insights:Activity})[n]||LayoutDashboard;}
+function navIcon(n){return ({Overview:LayoutDashboard,'Campus Map':MapPinned,'My requests':ClipboardList,Alerts:Bell,'Work orders':Wrench,'People & roles':Users,'Building Pulse':MapPinned,'Alerts & incidents':ShieldAlert,Visitors:Users,'Assets & QR':QrCode,Insights:Activity})[n]||LayoutDashboard;}
+function CampusMapPage({buildings,health,requests,alerts}) {
+ const mapNode = useRef(null);
+ const mapRef = useRef(null);
+ const layersRef = useRef(null);
+ const [query,setQuery] = useState('Dr. A.P.J. Abdul Kalam Technical University, Lucknow');
+ const [status,setStatus] = useState('Loading interactive map…');
+ const [selected,setSelected] = useState(null);
+ const [showSamples,setShowSamples] = useState(true);
+ const [mapReady,setMapReady] = useState(false);
+ useEffect(()=>{
+   let cancelled=false;
+   const loadCss=()=>new Promise(resolve=>{
+     if(document.querySelector('link[data-leaflet-css]')) return resolve();
+     const link=document.createElement('link'); link.rel='stylesheet'; link.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; link.dataset.leafletCss='true'; link.onload=resolve; document.head.appendChild(link);
+   });
+   const loadJs=()=>new Promise((resolve,reject)=>{
+     if(window.L) return resolve(window.L);
+     const script=document.querySelector('script[data-leaflet-js]')||document.createElement('script');
+     script.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; script.dataset.leafletJs='true'; script.onload=()=>resolve(window.L); script.onerror=reject;
+     if(!script.parentNode) document.body.appendChild(script);
+   });
+   (async()=>{try{await loadCss();const L=await loadJs();if(cancelled||!mapNode.current)return;
+      const map=L.map(mapNode.current,{scrollWheelZoom:true}).setView([26.8467,80.9462],13);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>'}).addTo(map);
+      mapRef.current=map; layersRef.current=L.layerGroup().addTo(map); setMapReady(true); setStatus('Map ready. Search for your exact college to center the view.');
+   }catch(e){setStatus('The map library could not load. Check your internet connection and reload this page.');}})();
+   return ()=>{cancelled=true;if(mapRef.current){mapRef.current.remove();mapRef.current=null;}};
+ },[]);
+ useEffect(()=>{
+   const map=mapRef.current,L=window.L,layer=layersRef.current;if(!map||!L||!layer)return;
+   layer.clearLayers();
+   if(!showSamples)return;
+   const center=map.getCenter();
+   const offsets=[[0.0015,0.0018],[-0.0011,0.0021],[0.0012,-0.0020],[-0.0018,-0.0012],[0.0024,0.0001],[-0.0002,-0.0030]];
+   buildings.forEach((b,i)=>{
+     const pos=[center.lat+offsets[i%offsets.length][0],center.lng+offsets[i%offsets.length][1]];
+     const score=health(b); const color=score<60?'#ef4444':score<80?'#f59e0b':'#10b981';
+     const marker=L.circleMarker(pos,{radius:9,color:'#fff',weight:2,fillColor:color,fillOpacity:1}).addTo(layer);
+     marker.bindPopup(`<strong>${b.name}</strong><br/>${b.type}<br/><span style="color:${color}">Demo health: ${score}%</span><br/><small>Illustrative marker — location not verified</small>`);
+     marker.on('click',()=>setSelected(b));
+   });
+ },[buildings,health,showSamples,mapReady]);
+ async function searchPlace(e){e.preventDefault();if(!query.trim()||!mapRef.current)return;setStatus('Searching OpenStreetMap…');try{
+   const url='https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q='+encodeURIComponent(query.trim());
+   const response=await fetch(url,{headers:{'Accept':'application/json'}});if(!response.ok)throw new Error('Search unavailable');const data=await response.json();
+   if(!data.length){setStatus('No result found. Try the full college name and city.');return;}
+   const place=data[0];mapRef.current.setView([Number(place.lat),Number(place.lon)],17);setStatus(`Centered on: ${place.display_name}. Sample markers remain illustrative, not verified building locations.`);setSelected(null);
+ }catch(e){setStatus('Place search failed. You can still pan and zoom the map manually.');}}
+ const active=selected||buildings[0];
+ const openReq=requests.filter(r=>r.building_id===active.id&&!['Resolved','Completed'].includes(r.status)).length;
+ const activeAlerts=alerts.filter(a=>a.building_id===active.id&&a.status!=='Resolved').length;
+ return <><div className="page-heading"><div><div className="eyebrow">GEOGRAPHIC CAMPUS EXPLORER</div><h1>Campus Map</h1><p>Search for your college, explore the map, and connect it to SurakshaHub building records.</p></div><div className="heading-actions"><button className="secondary-btn" onClick={()=>{setShowSamples(v=>!v);setStatus(showSamples?'Illustrative demo markers hidden.':'Illustrative demo markers shown.')}}>{showSamples?'Hide sample markers':'Show sample markers'}</button></div></div>
+ <div className="campus-map-layout"><section className="panel live-map-panel"><form className="campus-map-search" onSubmit={searchPlace}><label htmlFor="campus-map-query">Find your campus</label><div className="campus-map-search-row"><input id="campus-map-query" value={query} onChange={e=>setQuery(e.target.value)} placeholder="College name, city or address"/><button className="primary-btn" type="submit"><Search size={15}/> Search map</button></div></form><div className="live-leaflet-map" ref={mapNode} role="application" aria-label="Interactive OpenStreetMap campus map"/><div className="campus-map-status"><span className="online-dot"/>{status}</div><div className="map-legend"><span><i className="dot green"/> Healthy demo</span><span><i className="dot amber"/> Attention demo</span><span><i className="dot red"/> Critical demo</span></div></section>
+ <aside className="panel campus-map-details"><div className="panel-heading"><div><h3>Building details</h3><p>{selected?'Selected demo building':'Select a marker or a building below'}</p></div><Building2 size={18}/></div><div className="campus-building-list">{buildings.map(b=>{const score=health(b);return <button key={b.id} className={'campus-building-item '+(selected?.id===b.id?'selected':'')} onClick={()=>{setSelected(b);if(mapRef.current){const c=mapRef.current.getCenter();const L=window.L;if(L){const marker=L.circleMarker([c.lat+([0.0015,-0.0011,0.0012,-0.0018,0.0024,-0.0002][buildings.findIndex(x=>x.id===b.id)]),c.lng+([0.0018,0.0021,-0.0020,-0.0012,0.0001,-0.0030][buildings.findIndex(x=>x.id===b.id)])]);mapRef.current.panTo(marker.getLatLng());}}}}><span className={'building-status-dot '+(score<60?'critical':score<80?'warning':'healthy')}/><span className="campus-building-copy"><b>{b.name}</b><small>{b.type} · {b.id}</small></span><strong>{score}%</strong></button>})}</div><div className="campus-detail-stats"><div><small>Open maintenance</small><b>{openReq}</b></div><div><small>Active alerts</small><b>{activeAlerts}</b></div></div><div className="info-note"><CircleHelp size={17}/><p>Map markers are sample demo points offset from the map center. They are not actual building coordinates. Search for your campus, then replace these sample locations with verified building coordinates or mapped footprints.</p></div><a className="map-external-link" href="https://www.openstreetmap.org/" target="_blank" rel="noreferrer"><ExternalLink size={14}/> OpenStreetMap</a></aside></div></>;
+}
+
 function AuthScreen({onSignIn,onSignUp,error,setError,configured,loading}){
  const [mode,setMode]=useState('login');
  const [portal,setPortal]=useState('student');
