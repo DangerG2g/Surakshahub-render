@@ -33,9 +33,3 @@ Render sets `PORT` automatically; `server.js` uses it. No `VITE_SUPABASE_URL`, `
 - Tables and sample assets are initialized by the API when it first receives a request. Keep the database connection string and JWT secret private.
 - Use a persistent managed PostgreSQL database; do not use an ephemeral filesystem for application data.
 - The source is syntax-checked, but you should run a real deployment and test signup/login, role assignment, and maintenance verification before using real operational data.
-
-## Interactive Campus Map test
-
-This version adds a **Campus Map** page using Leaflet and OpenStreetMap tiles loaded from their public CDN. Sign in, choose **Campus Map** in the sidebar, and search for your college name and city to center the map. The sample building markers are intentionally illustrative and are not verified building coordinates. Replace them with authorized, verified coordinates before presenting them as real campus data.
-
-OpenStreetMap attribution is shown on the map. The public OSM tile service is best-effort and subject to its usage policy; for sustained or production traffic, select a suitable tile provider and follow its terms: https://operations.osmfoundation.org/policies/tiles/ . Place search uses the public Nominatim endpoint on a user-initiated search, so use it responsibly and review its usage policy before production deployment.
