@@ -226,6 +226,28 @@ function AuthScreen({onSignIn,onSignUp,error,setError,configured,loading}){
  return <div className="auth-screen"><div className="auth-left"><div className="brand auth-brand"><div className="brand-mark"><ShieldCheck size={24}/></div><div><b>SurakshaHub</b><small>BUILDING OPERATIONS</small></div></div><div className="auth-copy"><div className="eyebrow light">SAFER BUILDINGS. SMARTER OPERATIONS.</div><h1>Every building issue,<br/><em>one clear response.</em></h1><p>A campus-independent workspace for issue reports, AI-assisted evidence checks, maintenance teams and administrator approval.</p><div className="auth-highlights"><span><CheckCircle2/> Maintenance tracking</span><span><CheckCircle2/> Safety alerts</span><span><CheckCircle2/> Building health insights</span></div></div><div className="auth-bottom">Username access · Secure password verification</div></div><div className="auth-right"><form className="auth-card" onSubmit={submit}><div className="mobile-brand"><div className="brand-mark"><ShieldCheck/></div><b>SurakshaHub</b></div><div className="eyebrow">ACCOUNT ACCESS</div><h2>Choose your portal</h2><div className="portal-choices" role="group" aria-label="Choose portal">{Object.entries(portalInfo).map(([key,item])=><button type="button" key={key} className={'portal-choice '+(portal===key?'active':'')} onClick={()=>{setPortal(key);setError('')}}><b>{item.title}</b><small>{item.hint}</small></button>)}</div><h2>{mode==='login'?'Sign in with username':'Create an account'}</h2><p className="muted">{mode==='login'?'Enter your username and password.':portal==='student'?'Create your user account with a username and password.':'Create your account; an administrator must approve staff or administrator privileges before you can use them.'}</p>{mode==='signup'&&<label>Full name<input name="name" autoComplete="name" required placeholder="Your full name"/></label>}<label>Username<input name="username" autoComplete="username" required minLength={3} maxLength={32} pattern="[A-Za-z0-9._-]{3,32}" placeholder="Choose a username"/></label>{mode==='signup'&&<input type="hidden" name="portal" value={portal}/>}<label>Password<input type="password" name="password" autoComplete={mode==='login'?'current-password':'new-password'} required minLength={8} placeholder="At least 8 characters"/></label>{error&&<div className="form-error">{error}</div>}<button className="primary-btn full" disabled={loading}>{loading?'Please wait…':mode==='login'?'Sign in':'Create account'}<ChevronRight size={17}/></button><p className="switch-auth">{mode==='login'?"Don't have an account?":"Already registered?"} <button type="button" onClick={()=>{setError('');setMode(mode==='login'?'signup':'login')}}>{mode==='login'?'Create account':'Sign in'}</button></p><div className="auth-divider"><span>{portalInfo[portal].title.toUpperCase()}</span></div><small className="demo-note">Usernames are used on this screen. The SurakshaHub backend verifies passwords securely. New accounts start with User permissions; an existing administrator assigns staff and administrator roles from People & roles.</small></form></div></div>
 }
 
+function MiniMap({buildings=[], health, alerts=[]}) {
+  const getHealth = (building) => {
+    try {
+      const value = typeof health === 'function' ? health(building) : health?.[building.id];
+      return Number.isFinite(Number(value)) ? Number(value) : 100;
+    } catch { return 100; }
+  };
+  const alertCount = (id) => alerts.filter(a => a.building_id === id && a.status !== 'Resolved').length;
+  return <div className="sh-mini-map" role="img" aria-label="Illustrative campus building status map">
+    <div className="sh-map-road sh-map-road-one"/><div className="sh-map-road sh-map-road-two"/><div className="sh-map-green sh-map-green-one"/><div className="sh-map-green sh-map-green-two"/>
+    {buildings.map((building, index) => {
+      const score = getHealth(building);
+      const alertN = alertCount(building.id);
+      const tone = score < 60 || alertN > 0 ? 'critical' : score < 80 ? 'attention' : 'healthy';
+      return <div key={building.id || index} className={`sh-map-building ${tone}`} style={{left:`${building.x ?? (15 + (index % 3) * 30)}%`,top:`${building.y ?? (20 + Math.floor(index / 3) * 48)}%`}} title={`${building.name}: ${score}% health${alertN ? `, ${alertN} active alert(s)` : ''}`}>
+        <span className="sh-map-building-icon"><Building2 size={15}/></span><span className="sh-map-building-label">{building.short || building.name}</span>
+      </div>;
+    })}
+    <span className="sh-map-caption"><MapPinned size={13}/> Illustrative campus layout · sample data</span>
+  </div>;
+}
+
 function Overview({role,user,requests,alerts,buildings,buildingHealth,onNavigate,onNew}){
  const activeAlerts=alerts.filter(a=>a.status!=='Resolved'); const activeReq=requests.filter(r=>!['Resolved','Completed'].includes(r.status));
  const title=role==='student'?`Welcome back, ${user.full_name?.split(' ')[0]||'User'}`:role==='maintenance'?'Maintenance workspace':role==='security'?'Security operations':'Building overview';
