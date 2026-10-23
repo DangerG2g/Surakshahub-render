@@ -2,6 +2,15 @@
 
 This version is adapted to run as a regular Node.js web service on Render. It serves the Vite-built frontend and the `/api` backend from the same service. It does not use Supabase or Vercel Functions.
 
+## Run locally
+
+1. Install Node.js 20 or newer.
+2. Open a terminal in this project folder and run `npm install`.
+3. Run `npm start`. The start command now builds the Vite frontend first and then starts the Node.js server, so the app does not serve an empty/missing `dist` folder.
+4. Open `http://localhost:3001`.
+
+For frontend-only development, use `npm run dev`; API requests also require the backend server on port 3001, so use `npm start` for the simplest local run.
+
 ## Deploy on Render
 
 1. Extract this ZIP and upload the **contents** of `Smart-Building-main` to a GitHub repository (the `package.json`, `server.js`, `api/`, `src/`, and `index.html` should be at the repository root).
