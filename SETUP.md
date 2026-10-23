@@ -33,3 +33,8 @@ Render sets `PORT` automatically; `server.js` uses it. No `VITE_SUPABASE_URL`, `
 - Tables and sample assets are initialized by the API when it first receives a request. Keep the database connection string and JWT secret private.
 - Use a persistent managed PostgreSQL database; do not use an ephemeral filesystem for application data.
 - The source is syntax-checked, but you should run a real deployment and test signup/login, role assignment, and maintenance verification before using real operational data.
+
+
+## Gemini AI evidence screening
+
+Add `GEMINI_API_KEY` to the Render web service Environment settings (keep it secret; never add it to frontend code or commit it). Create the key in Google AI Studio, then redeploy. The Evidence review page lets signed-in maintenance staff/admins select a JPEG, PNG, or WebP repair photo (up to about 5 MB) and asks Gemini 2.5 Flash to compare visible content with the complaint description. The image is sent to Gemini for this request and is not saved by this endpoint. The first integration does not screen video and does not persist evidence media; attachment names from older requests are not the actual media. AI output is advisory only; admins must make the final verification.

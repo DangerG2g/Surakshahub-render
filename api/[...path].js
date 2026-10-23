@@ -150,6 +150,40 @@ export default async function handler(req,res) {
     }
     const user=await currentUser(req,db);
     if(!user) return sendError(res,401,'Please sign in.');
+    if(path==='ai/screen-evidence' && req.method==='POST') {
+      if(!['admin','maintenance'].includes(user.role)) return sendError(res,403,'Only maintenance staff or administrators can screen repair evidence.');
+      const apiKey=process.env.GEMINI_API_KEY;
+      if(!apiKey) return sendError(res,503,'Gemini AI is not configured yet. Add GEMINI_API_KEY in Render Environment settings, then redeploy.');
+      const title=String(req.body?.title||'').slice(0,200);
+      const description=String(req.body?.description||'').slice(0,2500);
+      const category=String(req.body?.category||'').slice(0,80);
+      const area=String(req.body?.area||'').slice(0,120);
+      const imageBase64=String(req.body?.imageBase64||'');
+      const mimeType=String(req.body?.mimeType||'');
+      if(!title || !description) return sendError(res,400,'Complaint title and description are required.');
+      if(!imageBase64 || !['image/jpeg','image/png','image/webp'].includes(mimeType)) return sendError(res,400,'Choose a JPEG, PNG, or WebP photo to analyze. Video screening is not enabled in this first AI step.');
+      if(imageBase64.length > 7_000_000) return sendError(res,413,'Photo is too large for this screening step. Choose a smaller image (about 5 MB or less).');
+      const prompt = `You are an assistant screening maintenance evidence for a campus facilities workflow. Compare this submitted repair photo to the complaint context. Return ONLY valid JSON with keys: outcome (one of "Likely relevant", "Needs human review", "Possible mismatch"), summary (max 60 words), observations (array of at most 4 short strings), recommended_action (one of "Admin review", "Request clearer evidence", "Check repair on site"), confidence ("low", "medium", or "high"). Complaint title: ${title}. Category: ${category}. Location: ${area}. Description: ${description}. Assess only visible relevance and whether the photo appears to show the described issue/repair. Do not claim to verify authenticity, manipulation, completion, or safety from an image. If the photo is unclear or context is insufficient, choose Needs human review. This is a recommendation; a human administrator must make the final decision.`;
+      try {
+        const response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(apiKey),{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({contents:[{parts:[{text:prompt},{inlineData:{mimeType,data:imageBase64}}]}],generationConfig:{temperature:0.1,responseMimeType:'application/json'}}),
+        });
+        const payload=await response.json().catch(()=>({}));
+        if(!response.ok) { console.error('Gemini API error:',response.status,payload?.error?.message||'unknown'); return sendError(res,502,'Gemini could not screen this photo. Check the API key, model access, and billing/quota settings.'); }
+        const raw=payload?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('').trim();
+        if(!raw) return sendError(res,502,'Gemini returned no screening result. Please retry or ask an administrator to review manually.');
+        let result; try { result=JSON.parse(raw.replace(/^```json\s*/i,'').replace(/```$/,'').trim()); } catch { return sendError(res,502,'Gemini returned an unreadable result. Please retry or review manually.'); }
+        const allowedOutcomes=['Likely relevant','Needs human review','Possible mismatch'];
+        if(!allowedOutcomes.includes(result.outcome)) result.outcome='Needs human review';
+        if(!['Admin review','Request clearer evidence','Check repair on site'].includes(result.recommended_action)) result.recommended_action='Admin review';
+        if(!['low','medium','high'].includes(result.confidence)) result.confidence='low';
+        result.observations=Array.isArray(result.observations)?result.observations.slice(0,4).map(x=>String(x).slice(0,200)):[];
+        result.summary=String(result.summary||'The evidence needs a human review.').slice(0,500);
+        result.disclaimer='AI screening is not proof of authenticity or repair completion. Administrator verification is required.';
+        return res.json({result});
+      } catch (err) { console.error('Gemini screening failed:',err?.message||err); return sendError(res,502,'Could not reach Gemini. Please retry later or review manually.'); }
+    }
     if(path==='rpc' && req.method==='POST') {
       if(req.body?.name!=='admin_set_user_role') return sendError(res,400,'Unknown operation.');
       if(user.role!=='admin') return sendError(res,403,'Administrator access required.');
