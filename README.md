@@ -33,3 +33,6 @@ Render sets `PORT` automatically; `server.js` uses it. No `VITE_SUPABASE_URL`, `
 - Tables and sample assets are initialized by the API when it first receives a request. Keep the database connection string and JWT secret private.
 - Use a persistent managed PostgreSQL database; do not use an ephemeral filesystem for application data.
 - The source is syntax-checked, but you should run a real deployment and test signup/login, role assignment, and maintenance verification before using real operational data.
+
+
+Campus data note: this build uses Bennett University as a clearly identified example campus. The map shows the university-level public location via OpenStreetMap. Facility cards link to official university pages; they do not claim exact indoor building coordinates. Complaint, alert, asset, and maintenance records remain demo/prototype records unless entered by your deployment. Images are not represented as Bennett campus photos without verified reuse permission.
