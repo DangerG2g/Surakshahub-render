@@ -38,3 +38,35 @@ Render sets `PORT` automatically; `server.js` uses it. No `VITE_SUPABASE_URL`, `
 ## Gemini AI evidence screening
 
 Add `GEMINI_API_KEY` to the Render web service Environment settings (keep it secret; never add it to frontend code or commit it). Create the key in Google AI Studio, then redeploy. The Evidence review page lets signed-in maintenance staff/admins select a JPEG, PNG, or WebP repair photo (up to about 5 MB) and asks Gemini 2.5 Flash to compare visible content with the complaint description. The image is sent to Gemini for this request and is not saved by this endpoint. The first integration does not screen video and does not persist evidence media; attachment names from older requests are not the actual media. AI output is advisory only; admins must make the final verification.
+
+
+## Required repair evidence + Gemini review (Render)
+
+Set these variables in the Render web service Environment page (never commit secrets to GitHub):
+
+- `GEMINI_API_KEY` — Google AI Studio key used for Gemini photo/frame screening.
+- `CLOUDINARY_CLOUD_NAME` — Cloudinary cloud name.
+- `CLOUDINARY_API_KEY` — Cloudinary API key.
+- `CLOUDINARY_API_SECRET` — Cloudinary API secret.
+
+The existing `DATABASE_URL` (or `POSTGRES_URL`) and `JWT_SECRET` are also required. The database startup routine adds `evidence_files` and `ai_review` columns to existing maintenance requests automatically.
+
+Maintenance staff open **Work orders**, choose an assigned/in-progress work order, select a photo or video (max 5 MB), then press **Upload evidence, run AI, submit for admin verification**. Photos are screened directly; for videos the browser extracts one frame for screening. The original photo/video is uploaded to Cloudinary. Successful screening stores the media reference and AI recommendation on the work order and moves it to **Awaiting verification**.
+
+Administrators open **AI & Evidence review** to view uploaded evidence and the saved AI recommendation. Final approval is blocked until evidence and an AI result are stored. Gemini is only a relevance screen; it cannot prove authenticity, repair completion, or safety.
+
+
+## Required repair evidence + Gemini review (Render)
+
+Set these variables in the Render web service Environment page (never commit secrets to GitHub):
+
+- `GEMINI_API_KEY` — Google AI Studio key used for Gemini photo/frame screening.
+- `CLOUDINARY_CLOUD_NAME` — Cloudinary cloud name.
+- `CLOUDINARY_API_KEY` — Cloudinary API key.
+- `CLOUDINARY_API_SECRET` — Cloudinary API secret.
+
+The existing `DATABASE_URL` (or `POSTGRES_URL`) and `JWT_SECRET` are also required. The database startup routine adds `evidence_files` and `ai_review` columns to existing maintenance requests automatically.
+
+Maintenance staff open **Work orders**, choose an assigned/in-progress work order, select a photo or video (max 5 MB), then press **Upload evidence, run AI, submit for admin verification**. Photos are screened directly; for videos the browser extracts one frame for screening. The original photo/video is uploaded to Cloudinary. Successful screening stores the media reference and AI recommendation on the work order and moves it to **Awaiting verification**.
+
+Administrators open **AI & Evidence review** to view uploaded evidence and the saved AI recommendation. Final approval is blocked until evidence and an AI result are stored. Gemini is only a relevance screen; it cannot prove authenticity, repair completion, or safety.

@@ -2,6 +2,7 @@ import postgres from 'postgres';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
+import { v2 as cloudinary } from 'cloudinary';
 
 const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 const jwtSecret = process.env.JWT_SECRET;
@@ -16,7 +17,7 @@ const uid = p => `${p}-${randomUUID()}`;
 const roles = ['student','maintenance','security','admin'];
 const tables = {
   profiles: ['id','username','full_name','role','created_at'],
-  maintenance_requests: ['id','title','building_id','area','category','priority','status','description','reporter_id','reporter_name','assigned_to','assigned_staff_id','created_at','updated_at','verified_by','verified_at'],
+  maintenance_requests: ['id','title','building_id','area','category','priority','status','description','reporter_id','reporter_name','assigned_to','assigned_staff_id','created_at','updated_at','verified_by','verified_at','evidence_files','ai_review'],
   alerts: ['id','title','building_id','area','severity','status','detail','audience','source','created_by','created_at'],
   assets: ['id','name','building_id','area','category','status'],
   visitors: ['id','name','organization','building_id','purpose','checked_out','checked_out_at','created_by','created_at'],
@@ -36,8 +37,11 @@ async function init(db) {
     status text NOT NULL DEFAULT 'Pending', description text, reporter_id text REFERENCES profiles(id),
     reporter_name text, assigned_to text, assigned_staff_id text REFERENCES profiles(id),
     created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
-    verified_by text REFERENCES profiles(id), verified_at timestamptz
+    verified_by text REFERENCES profiles(id), verified_at timestamptz,
+    evidence_files jsonb NOT NULL DEFAULT '[]'::jsonb, ai_review jsonb
   )`;
+  await db`ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS evidence_files jsonb NOT NULL DEFAULT '[]'::jsonb`;
+  await db`ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS ai_review jsonb`;
   await db`CREATE TABLE IF NOT EXISTS alerts (
     id text PRIMARY KEY, title text NOT NULL, building_id text, area text, severity text, status text,
     detail text, audience text, source text, created_by text REFERENCES profiles(id), created_at timestamptz NOT NULL DEFAULT now()
@@ -107,7 +111,7 @@ export default async function handler(req,res) {
   try {
     const db = database();
     await init(db);
-    if (!jwtSecret || jwtSecret.length < 32) return sendError(res,500,'JWT_SECRET is missing or too short in Vercel environment variables.');
+    if (!jwtSecret || jwtSecret.length < 32) return sendError(res,500,'JWT_SECRET is missing or too short in Render environment variables.');
     const cookie = (token, clear=false) => res.setHeader('Set-Cookie', clear
       ? 'suraksha_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0'
       : `suraksha_session=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=28800`);
@@ -150,6 +154,20 @@ export default async function handler(req,res) {
     }
     const user=await currentUser(req,db);
     if(!user) return sendError(res,401,'Please sign in.');
+    if(path==='evidence/upload' && req.method==='POST') {
+      if(!['admin','maintenance'].includes(user.role)) return sendError(res,403,'Only maintenance staff or administrators can upload repair evidence.');
+      const cloudName=process.env.CLOUDINARY_CLOUD_NAME, apiKey=process.env.CLOUDINARY_API_KEY, apiSecret=process.env.CLOUDINARY_API_SECRET;
+      if(!cloudName||!apiKey||!apiSecret) return sendError(res,503,'Evidence storage is not configured. Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in Render Environment.');
+      const fileBase64=String(req.body?.fileBase64||''), mimeType=String(req.body?.mimeType||''), fileName=String(req.body?.fileName||'evidence');
+      if(!fileBase64 || !['image/jpeg','image/png','image/webp','video/mp4','video/quicktime','video/webm','video/mpeg'].includes(mimeType)) return sendError(res,400,'Choose a supported photo or video file.');
+      if(fileBase64.length>6_700_000) return sendError(res,413,'File must be about 5 MB or smaller.');
+      cloudinary.config({cloud_name:cloudName,api_key:apiKey,api_secret:apiSecret,secure:true});
+      try {
+        const resourceType=mimeType.startsWith('video/')?'video':'image';
+        const uploaded=await cloudinary.uploader.upload(`data:${mimeType};base64,${fileBase64}`,{folder:'surakshahub/repair-evidence',resource_type:resourceType,use_filename:false,unique_filename:true,overwrite:false});
+        return res.status(201).json({evidence:{url:uploaded.secure_url,public_id:uploaded.public_id,resource_type:resourceType,name:fileName,mimeType,size:uploaded.bytes,uploaded_at:now()}});
+      } catch(err) { console.error('Evidence upload failed:',err?.message||err); return sendError(res,502,'Evidence upload failed. Check Cloudinary credentials and account limits.'); }
+    }
     if(path==='ai/screen-evidence' && req.method==='POST') {
       if(!['admin','maintenance'].includes(user.role)) return sendError(res,403,'Only maintenance staff or administrators can screen repair evidence.');
       const apiKey=process.env.GEMINI_API_KEY;
@@ -232,7 +250,9 @@ export default async function handler(req,res) {
           const clean=Object.fromEntries(Object.entries(record).filter(([k,v])=>cols.includes(k)&&v!==undefined));
           const names=Object.keys(clean);
           const query=`INSERT INTO "${table}" (${names.map(n=>'"'+n+'"').join(',')}) VALUES (${names.map((_,i)=>'$'+(i+1)).join(',')}) RETURNING ${cols.map(c=>'"'+c+'"').join(',')}`;
-          const rows=await db.unsafe(query,names.map(n=>clean[n]));
+          const insertValues=names.map(n=>['evidence_files','ai_review'].includes(n)&&clean[n]!=null?JSON.stringify(clean[n]):clean[n]);
+          const insertQuery=query.replace(`VALUES (${names.map((_,i)=>'$'+(i+1)).join(',')})`,`VALUES (${names.map((n,i)=>'$'+(i+1)+(['evidence_files','ai_review'].includes(n)?'::jsonb':'')).join(',')})`);
+          const rows=await db.unsafe(insertQuery,insertValues);
           inserted.push(rows[0]);
         }
         return res.status(201).json({data:Array.isArray(payload)?inserted:inserted[0]});
@@ -247,6 +267,8 @@ export default async function handler(req,res) {
           for(const row of existing) {
             if(isAdmin) {
               if(payload?.status==='Completed'&&row.status!=='Awaiting verification') return sendError(res,400,'Only work awaiting verification can be marked Completed.');
+              if(payload?.status==='Completed'&&(!row.ai_review||!Array.isArray(row.evidence_files)||!row.evidence_files.length)) return sendError(res,400,'AI-screened evidence is required before admin approval.');
+              if(user.role==='maintenance'&&payload?.status==='Awaiting verification'){const nextEvidence=payload.evidence_files??row.evidence_files;const nextAi=payload.ai_review??row.ai_review;if(!Array.isArray(nextEvidence)||!nextEvidence.length||!nextAi) return sendError(res,400,'Upload photo/video evidence and complete AI screening before submitting for admin verification.');}
             } else if(user.role==='maintenance') {
               if(row.assigned_staff_id!==user.id) return sendError(res,403,'You can only update work assigned to you.');
               if(!['In progress','Awaiting verification'].includes(payload?.status)) return sendError(res,403,'Staff may move work to In progress or Awaiting verification; only an admin can complete it.');
@@ -271,8 +293,9 @@ export default async function handler(req,res) {
         if(table==='maintenance_requests') updates.updated_at=now();
         const names=Object.keys(updates);
         if(!names.length) return sendError(res,400,'No valid updates supplied.');
-        const params=[...names.map(n=>updates[n]),...where.map(([,v])=>v)];
-        const updateSql=`UPDATE "${table}" SET ${names.map((n,i)=>'"'+n+'"=$'+(i+1)).join(',')} WHERE `+where.map(([c],i)=>`"${c}"=$${names.length+i+1}`).join(' AND ') + ` RETURNING ${cols.map(c=>'"'+c+'"').join(',')}`;
+        const jsonFields=['evidence_files','ai_review'];
+        const params=[...names.map(n=>jsonFields.includes(n)&&updates[n]!=null?JSON.stringify(updates[n]):updates[n]),...where.map(([,v])=>v)];
+        const updateSql=`UPDATE "${table}" SET ${names.map((n,i)=>'"'+n+'"=$'+(i+1)+(jsonFields.includes(n)?'::jsonb':'')).join(',')} WHERE `+where.map(([c],i)=>`"${c}"=$${names.length+i+1}`).join(' AND ') + ` RETURNING ${cols.map(c=>'"'+c+'"').join(',')}`;
         const rows=await db.unsafe(updateSql,params);
         return res.json({data:table==='visitors'?rows.map(r=>({...r,checked_out:Boolean(r.checked_out)})):rows});
       }
